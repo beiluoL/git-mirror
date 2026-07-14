@@ -1,0 +1,8 @@
+# 含令牌/敏感信息的本地配置，切勿提交
+lastSync.json
+config.json
+history.json
+sync.log
+launchd.log
+node_modules/
+.DS_Store

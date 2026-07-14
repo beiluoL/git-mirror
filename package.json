@@ -1,0 +1,18 @@
+{
+  "name": "git-mirror",
+  "version": "2.0.0",
+  "description": "GitHub ⇄ Gitee 双向镜像工具：SSH 优先、零依赖、支持实时进度、批量仓库、状态比对、定时同步与 CLI。",
+  "main": "server.js",
+  "bin": {
+    "git-mirror": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "cli": "node server.js --cli"
+  },
+  "keywords": ["git", "mirror", "github", "gitee", "sync", "backup"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=14"
+  }
+}

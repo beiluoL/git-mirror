@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Git 镜像工具 · GitHub ⇄ Gitee</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="wrap">
+  <h1>Git 镜像工具 <span class="tag">v2.0</span></h1>
+  <div class="sub">GitHub ⇄ Gitee 双向同步 · SSH 优先 · 实时进度 · 批量仓库 · 状态比对 · 定时同步 · CLI</div>
+
+  <div class="banner">
+    🔧 <b>传输策略</b>：默认 <b>SSH</b>（两端均已配置密钥，最安全、无需在 URL 埋令牌）。
+    仅当开启「自动建仓」时才需要填对应平台<b>令牌</b>（仅用于 REST API 建仓）。无 SSH 时可切到 HTTPS+令牌。
+    令牌仅用于单次请求与本地自动同步配置（已 gitignore，不会提交到仓库）。
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="sync">① 同步</div>
+    <div class="tab" data-tab="status">② 状态比对</div>
+    <div class="tab" data-tab="history">③ 同步历史</div>
+    <div class="tab" data-tab="profiles">④ 配置档案</div>
+    <div class="tab" data-tab="schedule">⑤ 定时同步</div>
+  </div>
+
+  <!-- 同步 -->
+  <div class="card panel" id="panel-sync">
+    <h2>同步配置</h2>
+    <div class="row">
+      <div class="field">
+        <label>同步方向</label>
+        <select id="direction">
+          <option value="gh2gitee">GitHub → Gitee</option>
+          <option value="gitee2gh">Gitee → GitHub</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>传输方式</label>
+        <select id="transport">
+          <option value="ssh">SSH（推荐）</option>
+          <option value="https">HTTPS + 令牌</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>GitHub 用户名</label>
+        <input id="githubUser" placeholder="如 beiluoL" />
+      </div>
+      <div class="field">
+        <label>GitHub 令牌（可选·仅自动建仓）</label>
+        <input id="githubToken" type="password" placeholder="ghp_...（留空可用 SSH 同步）" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Gitee 用户名</label>
+        <input id="giteeUser" placeholder="如 beiluol" />
+      </div>
+      <div class="field">
+        <label>Gitee 令牌（可选·仅自动建仓）</label>
+        <input id="giteeToken" type="password" placeholder="私人令牌（留空可用 SSH 同步）" />
+      </div>
+    </div>
+    <div class="field">
+      <label>仓库名（每行一个，支持批量）</label>
+      <textarea id="repos" placeholder="如：&#10;llm-learning-handbook&#10;git-mirror"></textarea>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" id="autoCreate" checked /> 目标不存在时自动建仓</label>
+      <label><input type="checkbox" id="private" checked /> 新建仓库设为私有</label>
+      <label><input type="checkbox" id="force" checked /> 强制推送（覆盖）</label>
+      <label><input type="checkbox" id="mirror" /> 镜像模式（清理目标多余分支/标签）</label>
+    </div>
+    <div class="btn-row">
+      <button id="syncBtn" onclick="doSync()">🚀 一键同步</button>
+      <button class="ghost" onclick="doCheck()">校验配置</button>
+      <span id="syncState" class="muted"></span>
+    </div>
+    <div class="card" style="margin-top:16px;margin-bottom:0;">
+      <h2>实时日志</h2>
+      <pre class="log" id="log">等待操作...（进度将实时显示）</pre>
+    </div>
+  </div>
+
+  <!-- 状态比对 -->
+  <div class="card panel hidden" id="panel-status">
+    <h2>仓库状态比对</h2>
+    <div class="row">
+      <div class="field">
+        <label>同步方向</label>
+        <select id="sDirection">
+          <option value="gh2gitee">GitHub → Gitee</option>
+          <option value="gitee2gh">Gitee → GitHub</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>用户名（源）</label>
+        <input id="sUser" placeholder="GitHub 或 Gitee 用户名" />
+      </div>
+      <div class="field">
+        <label>仓库名</label>
+        <input id="sRepo" placeholder="如 git-mirror" />
+      </div>
+    </div>
+    <div class="btn-row">
+      <button onclick="doStatus()">🔍 比对两端</button>
+      <span id="statusState" class="muted"></span>
+    </div>
+    <div class="status-grid" id="statusResult" style="margin-top:14px;"></div>
+  </div>
+
+  <!-- 历史 -->
+  <div class="card panel hidden" id="panel-history">
+    <h2>同步历史（最近 30 条）</h2>
+    <table id="historyTable">
+      <thead><tr><th>时间</th><th>方向</th><th>仓库</th><th>结果</th><th>摘要</th></tr></thead>
+      <tbody><tr><td colspan="5" class="muted">加载中...</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- 配置档案 -->
+  <div class="card panel hidden" id="panel-profiles">
+    <h2>配置档案（不含令牌，便于一键载入）</h2>
+    <div class="row">
+      <div class="field">
+        <label>档案名称</label>
+        <input id="profName" placeholder="如 我的镜像配置" />
+      </div>
+      <div class="field" style="flex:0 0 auto;display:flex;align-items:flex-end;">
+        <button onclick="saveProfile()">保存当前配置</button>
+      </div>
+    </div>
+    <div class="prof-list" id="profList"><div class="muted">暂无档案</div></div>
+  </div>
+
+  <!-- 定时 -->
+  <div class="card panel hidden" id="panel-schedule">
+    <h2>定时自动同步</h2>
+    <div class="row">
+      <div class="field" style="flex:0 0 auto;">
+        <label>启用</label>
+        <div class="checks" style="margin:0;">
+          <label><input type="checkbox" id="schedEnabled" /> 开启定时</label>
+        </div>
+      </div>
+      <div class="field">
+        <label>间隔（分钟）</label>
+        <input id="intervalMin" type="number" min="1" value="30" />
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="ghost" onclick="saveSchedule()">保存定时设置</button>
+      <span id="schedState" class="muted"></span>
+    </div>
+    <div class="sched-status muted">说明：定时任务复用「最近一次手动同步」的配置（含令牌，存于本地 lastSync.json），重启后自动恢复。请确保已成功执行过一次手动同步。</div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

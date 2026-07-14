@@ -1,0 +1,14 @@
+[Unit]
+Description=Git Mirror Tool (GitHub ⇄ Gitee)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/git-mirror
+ExecStart=/usr/bin/node /opt/git-mirror/server.js
+Environment=PORT=3000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
