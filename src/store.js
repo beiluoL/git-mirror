@@ -10,6 +10,7 @@ const SCHEDULE_FILE = path.join(ROOT, 'schedule.json');
 const PROFILES_FILE = path.join(ROOT, 'config.json');
 const HISTORY_FILE = path.join(ROOT, 'history.json');
 const LASTSYNC_FILE = path.join(ROOT, 'lastSync.json');
+const AUTOSTART_FILE = path.join(ROOT, 'autostart.json');
 
 function load(file, def) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return def; }
@@ -60,9 +61,18 @@ function setLastConfig(cfg) {
   return save(LASTSYNC_FILE, cfg);
 }
 
+// 开机自启状态（是否曾启用过，供前端回显）
+function getAutostart() {
+  return load(AUTOSTART_FILE, { enabled: false });
+}
+function setAutostart(obj) {
+  return save(AUTOSTART_FILE, obj);
+}
+
 module.exports = {
   getSchedule, setSchedule,
   getProfiles, saveProfile, deleteProfile,
   getHistory, addHistory,
   getLastConfig, setLastConfig,
+  getAutostart, setAutostart,
 };

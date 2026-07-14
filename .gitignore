@@ -4,5 +4,7 @@ config.json
 history.json
 sync.log
 launchd.log
+schedule.json
+autostart.json
 node_modules/
 .DS_Store

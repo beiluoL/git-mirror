@@ -10,12 +10,23 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 const core = require('./src/core');
 const store = require('./src/store');
+const autostart = require('./src/autostart');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SYNC_LOG = path.join(__dirname, 'sync.log');
+
+function portInUse(port) {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.once('error', () => resolve(true));
+    s.once('listening', () => { s.close(() => resolve(false)); });
+    s.listen(port);
+  });
+}
 
 // ---------------- SSE 广播 ----------------
 const sseClients = new Set();
@@ -44,30 +55,30 @@ let scheduleTimer = null;
 function startScheduler() {
   if (scheduleTimer) { clearInterval(scheduleTimer); scheduleTimer = null; }
   const schedule = store.getSchedule();
-  const last = store.getLastConfig();
-  if (schedule.enabled && schedule.intervalMin > 0 && last) {
+  const cfg = schedule.syncParams || store.getLastConfig();
+  if (schedule.enabled && schedule.intervalMin > 0 && cfg) {
     scheduleTimer = setInterval(() => {
-      const lc = store.getLastConfig();
-      if (!lc) return;
-      const res = runWithLogging(lc, (line) => broadcast({ type: 'log', line }));
+      const live = store.getSchedule().syncParams || store.getLastConfig();
+      if (!live) return;
+      const res = runWithLogging(live, (line) => broadcast({ type: 'log', line }));
       const entry = {
         ts: new Date().toISOString(),
-        direction: lc.direction,
-        repo: (lc.repos && lc.repos[0]) || lc.repo || '',
-        repos: (lc.repos || [lc.repo]).filter(Boolean),
+        direction: live.direction,
+        repo: (live.repos && live.repos[0]) || live.repo || '',
+        repos: (live.repos || [live.repo]).filter(Boolean),
         ok: res.ok,
         summary: res.log.split('\n').slice(-1)[0] || '',
       };
       store.addHistory(entry);
       const ts = new Date().toLocaleString('zh-CN');
       try {
-        fs.appendFileSync(SYNC_LOG, `\n[${ts}] 定时同步(${lc.direction}) 结果: ${res.ok ? '成功' : '失败'}\n${res.log}\n`);
+        fs.appendFileSync(SYNC_LOG, `\n[${ts}] 定时同步(${live.direction}) 结果: ${res.ok ? '成功' : '失败'}\n${res.log}\n`);
       } catch (_) {}
       broadcast({ type: 'done', ok: res.ok, log: res.log, scheduled: true });
     }, schedule.intervalMin * 60 * 1000);
     console.log(`[scheduler] 已启动：每 ${schedule.intervalMin} 分钟自动同步`);
   } else {
-    console.log('[scheduler] 未启动');
+    console.log('[scheduler] 未启动（enabled=' + schedule.enabled + '，有配置=' + !!cfg + '）');
   }
 }
 
@@ -203,7 +214,7 @@ const server = http.createServer(async (req, res) => {
   // 定时配置
   if (req.method === 'GET' && req.url === '/api/schedule') {
     const s = store.getSchedule();
-    sendJSON(res, 200, { ...s, hasLastConfig: !!store.getLastConfig() });
+    sendJSON(res, 200, { ...s, hasLastConfig: !!store.getLastConfig(), hasSyncParams: !!s.syncParams });
     return;
   }
   if (req.method === 'POST' && req.url === '/api/schedule') {
@@ -212,9 +223,36 @@ const server = http.createServer(async (req, res) => {
       const s = store.getSchedule();
       if (typeof p.enabled === 'boolean') s.enabled = p.enabled;
       if (p.intervalMin && !isNaN(p.intervalMin)) s.intervalMin = Math.max(1, parseInt(p.intervalMin, 10));
+      if (p.syncParams) s.syncParams = p.syncParams; // 独立保存的同步配置
       store.setSchedule(s);
       startScheduler();
-      sendJSON(res, 200, { ok: true, schedule: { ...s, hasLastConfig: !!store.getLastConfig() } });
+      sendJSON(res, 200, { ok: true, schedule: { ...s, hasLastConfig: !!store.getLastConfig(), hasSyncParams: !!s.syncParams } });
+    } catch (e) {
+      sendJSON(res, 500, { ok: false, error: e.message });
+    }
+    return;
+  }
+
+  // 开机自启
+  if (req.method === 'GET' && req.url === '/api/autostart') {
+    sendJSON(res, 200, autostart.getStatus());
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/api/autostart') {
+    try {
+      const p = await readBody(req);
+      let result;
+      if (p.enabled) {
+        result = autostart.enable();
+        // 若端口已被手动实例占用，本机已运行，无需重复启动（下次登录由守护拉起）
+        const inUse = await portInUse(PORT);
+        if (inUse) result.note = '本机已有实例在运行，守护将在下次登录时自动拉起';
+        store.setAutostart({ enabled: true, platform: result.status && result.status.platform });
+      } else {
+        result = autostart.disable();
+        store.setAutostart({ enabled: false });
+      }
+      sendJSON(res, 200, result);
     } catch (e) {
       sendJSON(res, 500, { ok: false, error: e.message });
     }
@@ -308,6 +346,13 @@ if (process.argv.includes('--cli')) {
   runCLI();
 } else {
   startScheduler();
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`端口 ${PORT} 已被占用，疑似已有实例在运行，本进程直接退出（避免冲突）。`);
+      process.exit(0);
+    }
+    throw err;
+  });
   server.listen(PORT, () => {
     console.log(`git-mirror 运行于 http://localhost:${PORT}`);
   });
